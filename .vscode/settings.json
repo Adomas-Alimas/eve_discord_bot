@@ -1,7 +1,7 @@
 {
     //"python.venvPath": "C:\\Users\\Ripe Boi\\Desktop\\Programavimas\\Python_learning\\!!Envs\\eduka",
     "python.linting.pylintEnabled": true,
-    "python.linting.enabled": true,
+    "python.linting.enabled": false,
     "workbench.colorCustomizations": {
         "activityBar.activeBackground": "#515495",
         "activityBar.activeBorder": "#3e2223",
