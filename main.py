@@ -2,6 +2,9 @@ import os
 from discord.ext import commands
 import discord
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+import logging
 import configparser
 
 import websocket
@@ -15,6 +18,7 @@ from dotenv import load_dotenv
 # scp "C:\Users\Ripe Boi\Desktop\launchDiscordBot.bat" admin@192.168.1.199:/C:/Users/admin/Desktop/
 
 CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
+
 
 def readConfig(section=None, key=None):
     if section == None and key == None:
@@ -45,28 +49,35 @@ CORPID = readConfig('KILLMAILS', 'CorpID')
 
 bot = commands.Bot(command_prefix="-")
 
-DEBUG = False
+DEBUG = True
 
     
 if DEBUG:
-    # flood of data
     
+    # logging
+    logger = logging.getLogger('discord')
+    logger.setLevel(logging.DEBUG)
+    handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+    handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+    logger.addHandler(handler)
+    
+    # flood of data
     SUBCOMMAND = {"action":"sub","channel":"killstream"}
-    #SUBCOMMAND = {"action":"sub","channel":f"corporation:{CORPID}"}
+    SUBCOMMAND = {"action":"sub","channel":f"alliance:498125261"}
 else:
     # corp kilboard
     SUBCOMMAND = {"action":"sub","channel":f"corporation:{CORPID}"}
 
 
 kilmailText = {"win": ["Something blew up, and it wasn't us \\o/: ",
-                       "Get outta our hole: ",
-                       "Bob blessed us: ",
-                       "Our killboard is turning greener \\o/: ",
-                       "Get blaped: ",
-                       "Booyah! Another one bites the dust: ",
-                       "Back to Jita you go: "],
+                    "Get outta our hole: ",
+                    "Bob blessed us: ",
+                    "Our killboard is turning greener \\o/: ",
+                    "Get blaped: ",
+                    "Booyah! Another one bites the dust: ",
+                    "Back to Jita you go: "],
 
-               "loss": ["Oh well, you win some, you lose some: ",
+            "loss": ["Oh well, you win some, you lose some: ",
                         "Fuck...: ",
                         "The Bob is angry: ",
                         "Sweaty tryhards killing us: ",
@@ -75,35 +86,51 @@ kilmailText = {"win": ["Something blew up, and it wasn't us \\o/: ",
                         "**Catgirl will remember this: **"]}
 
 
-@bot.command(name="subKillfeed", help="Subscribes current channel to corp killfeed")
+@bot.command(name="subKillfeed", help="Subscribes current channel to corp killfeed.")
 async def subscribeChannel(context):
-    print(context.author.name)
     if not context.author.name == "GibTiddy":
         return
     
     channel = context.message.channel
     channelID = channel.id
     
-    channels = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
+    subbedChannels = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
     
-    if not channelID in channels:
-        channels.append(channelID)
-        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(channels))
-        await channel.send(f"Successfully subscribed channel [{channel.name}] to corp (ID: {CORPID}) killboard.")
+    if not channelID in subbedChannels:
+        subbedChannels.append(channelID)
+        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(subbedChannels))
+        await channel.send(f"```Successfully subscribed channel [{channel.name}] to corp (ID: {CORPID}) killboard.```")
         
     else:
-        channels.remove(channelID)
-        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(channels))
-        await channel.send(f"Successfully unsubscribed channel [{channel.name}] from corp (ID: {CORPID}) killboard.")    
-
-
-@bot.event
-async def on_message(message):
-    if message.guild is None and message.author != bot.user and message.content == "66":
-        await message.channel.send("Shutting off")
-        await bot.close()
+        subbedChannels.remove(channelID)
+        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(subbedChannels))
+        await channel.send(f"```Successfully unsubscribed channel [{channel.name}] from corp (ID: {CORPID}) killboard.```")  
         
-    await bot.process_commands(message)
+        
+@bot.command(name="subbedChannels", help="Shows all channels that are subscribed.")  
+async def printChannels(context):
+    if not context.author.name == "GibTiddy":
+        return
+    
+    channel = context.message.channel
+    
+    subbedChannels = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
+    
+    responseMessage = "```Following channels are subscribed to a killfeed: \n"
+    for i, chID in enumerate(subbedChannels):
+        ch = bot.get_channel(chID)
+        responseMessage += f"({i+1}) channel_server={ch.guild.name} | channel_name={ch.name} |  channel_id={chID}\n"
+
+    responseMessage += "```"
+    await channel.send(responseMessage)
+    
+    
+@bot.command(name="66", help="\"Execute order 66.\"")
+async def killBot(context):
+    if context.author.name == "GibTiddy":
+        await context.message.channel.send("Shutting off")
+        await bot.close()
+
 
 
 @bot.event
@@ -118,54 +145,86 @@ async def on_ready():
     
     
 async def reportKillmails():
+    async def listenToSocket(ws):
+        # async listening websocket
+        result = await asyncio.get_event_loop().run_in_executor(None, ws.recv)
+        return result
+    
+    # connect up with zKillFeed
     ws = websocket.WebSocket()
-    ws.connect("wss://zkillboard.com/websocket/", timeout=10)
+    ws.connect("wss://zkillboard.com/websocket/")
 
-    # connect up to zKillFeed
     ws.send(json.dumps(SUBCOMMAND))
-    #channel = bot.get_channel(CHANNELID)
 
     while True:
         await asyncio.sleep(1)
         
         try:
-            result = ws.recv()
+            #print("connecting")
+            # ping discord server so bot no crash?
+            bot.is_closed()
+            result = await listenToSocket(ws)
+            
+            if len(result) == 0:
+                continue
             result = json.loads(result)
+            
+            
         except websocket.WebSocketTimeoutException:
-            continue
-        except (ConnectionAbortedError, websocket.WebSocketConnectionClosedException) as e:
-            ws.connect("wss://zkillboard.com/websocket/", timeout=10)
-            ws.send(json.dumps(SUBCOMMAND))
+            print("Timeout exception, thsi shouldn't happen.")
             continue
             
-        except Exception as e:
-            print(e)
-            print(type(e).__name__)
+        except (ConnectionAbortedError, websocket.WebSocketConnectionClosedException) as e:
+            print("Reconnnecting...")
+            ws.connect("wss://zkillboard.com/websocket/")
+            ws.send(json.dumps(SUBCOMMAND))
             continue
+        
+        """    
+        except Exception as e:
+            print("EXCEPTION1 NAME:")
+            print(type(e).__name__)
+            print("EXCEPTION1:")
+            print(e)
+            
+            continue
+        
+        #print("JSON STRING:")
+        #print("______________________________________________________")
+        #print(result)
+        #print("______________________________________________________")
+        """
         
         channelIDs = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
         if len(channelIDs) == 0:
             continue
         
-        #print(result["killmail_time"])
-        #print(result["zkb"]["url"])
-        
         
         for chID in channelIDs:
             channel = bot.get_channel(chID)
-        
-            if result["victim"]["corporation_id"] == CORPID:
-                await channel.send(random.choice(kilmailText["loss"]))
+
+            message = ""
+            
+            #if result["victim"]["corporation_id"] == CORPID:
+            if result["corporation_id"] == CORPID:
+                message += random.choice(kilmailText["loss"])
+                message += "\n"
+                
             else:
-                await channel.send(random.choice(kilmailText["win"]))
+                message += random.choice(kilmailText["win"])
+                message += "\n"
             
             
-            await channel.send(result["zkb"]["url"])
+            #message += result["zkb"]["url"]
+            message += result["url"]
+            
+            await channel.send(message)
         
 
 
 
 if __name__ == "__main__":
-    bot.run(TOKEN)
     
-       
+    bot.run(TOKEN)
+
+   
