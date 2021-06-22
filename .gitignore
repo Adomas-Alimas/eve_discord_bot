@@ -1,5 +1,22 @@
+# Ignore generic temp files, debugging logs, build results
+# and private configuration files
+
+# Config, discord key
 .env
-test.py
-requirements.txt
 config.ini
+
+# VS-Code specific stuff
+.vscode
+
+# Debugging, logs...
+test.py
+main2.py
+debug.txt
 discord.log
+
+
+requirements.txt
+
+
+
+
