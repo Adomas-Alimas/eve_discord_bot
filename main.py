@@ -132,6 +132,15 @@ async def printChannels(context):
     await channel.send(responseMessage)
     
     
+@bot.command(name="Restart", help="\"Restart hosting server\"")
+async def restartServer(context):
+    # restarts server
+    if context.author.name == "GibTiddy":
+        await context.message.channel.send("Restarting server")
+        await bot.close()
+        os.system("shutdown /r")
+        
+
 @bot.command(name="66", help="\"Execute order 66\"")
 async def killBot(context):
     # Kills bot
