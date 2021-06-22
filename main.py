@@ -160,101 +160,86 @@ async def reportKillmails():
     # connect up with zKillFeed websocket
     while True:
         # outer loop restarted when connection fails
-        # try statement in case server throws errors on connection (eg: 521)
-        try:
-            async with websockets.connect("wss://zkillboard.com/websocket/") as websocket:
-                await websocket.send(json.dumps(SUBCOMMAND))
+        
+        async with websockets.connect("wss://zkillboard.com/websocket/") as websocket:
+            await websocket.send(json.dumps(SUBCOMMAND))
+            
+            while True:
+                # listener loop
                 
-                while True:
-                    # listener loop
+                try:
+                    # ping discord server so bot doesn't crash?
+                    bot.is_closed()
                     
-                    try:
-                        # try statement for getting info
-                        # ping discord server so bot doesn't crash?
-                        bot.is_closed()
-                        
-                        print("Waiting for killmail")
-                        
-                        loggingTimeStart = time.time()
-                        # needs a timeout because of internal zkb timeout?
-                        killMail = await asyncio.wait_for(websocket.recv(), timeout=3600)
+                    print("Waiting for killmail")
                     
-                    except (asyncio.TimeoutError):
-                        # print("Connection timeout, restarting socket")
-                        break
-                        
-                    except (ConnectionClosedError) as e:
-                        # TODO DEBUG
-                        print(e)
-                        
-                        loggingTimeEnd = time.time()
+                    loggingTimeStart = time.time()
+                    killMail = await asyncio.wait_for(websocket.recv(), timeout=3600)
+                
+                except (asyncio.TimeoutError):
+                    # print("Connection timeout, restarting socket")
+                    break
                     
-                        with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
-                            f.write("\n\n\nCONNECTION_ERROR_1006________________________________")
-                            f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
-                            f.write(repr(e))
-                            
-                        print("Connection lost, restarting socket [err 1006, good exception]")
-                        break
-                        
-                    except Exception as e:
-                        # TODO DEBUG
-                        print(e)
-                        
-                        loggingTimeEnd = time.time()
+                except (ConnectionClosedError) as e:
+                    # TODO DEBUG
+                    print(e)
                     
-                        with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
-                            f.write("\n\n\nCONNECTION_ERROR_BAD__________________________________")
-                            f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
-                            f.write(repr(e))
-                            
-                        print("Connection lost, restarting socket [unknown exception, check logs]")
-                        break
-            
-                    try:
-                        print("Killmail received, sending discord message")
+                    loggingTimeEnd = time.time()
+                
+                    with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
+                        f.write("\n\n\nCONNECTION_ERROR_1006________________________________")
+                        f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
+                        f.write(repr(e))
                         
-                        killMail = json.loads(killMail)
+                    print("Connection lost, restarting socket [err 1006, good exception]")
+                    break
+                    
+                except Exception as e:
+                    # TODO DEBUG
+                    print(e)
+                    
+                    loggingTimeEnd = time.time()
+                
+                    with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
+                        f.write("\n\n\nCONNECTION_ERROR_BAD__________________________________")
+                        f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
+                        f.write(repr(e))
+                        
+                    print("Connection lost, restarting socket [unknown exception, check logs]")
+                    break
+        
+                try:
+                    print("Killmail received, sending discord message")
+                    
+                    killMail = json.loads(killMail)
 
-                        message = ""
-                        if int(killMail["corporation_id"]) == int(CORPID):
-                            message += random.choice(kilmailText["loss"])
-                            message += "\n"
-                        else:
-                            message += random.choice(kilmailText["win"])
-                            message += "\n"
-                        
-                        message += killMail["url"]
-                        
-                        channelIDs = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
-                        if len(channelIDs) == 0:
-                            continue
-                        for chID in channelIDs:
-                            channel = bot.get_channel(chID)
-                            await channel.send(message)
-                            
-                    except Exception as e:
-                        # TODO DEBUG
-                        print(e)
-                        
-                        with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
-                            f.write("\n\n\nKILLMAIL_SENDING_ERROR___________________________________\n")
-                            f.write(repr(e))
-                            
-                        print("Error while sending killmail, restarting socket")
-                        break
+                    message = ""
+                    if int(killMail["corporation_id"]) == int(CORPID):
+                        message += random.choice(kilmailText["loss"])
+                        message += "\n"
+                    else:
+                        message += random.choice(kilmailText["win"])
+                        message += "\n"
                     
-        except Exception as e:
-            # TODO DEBUG
-            print(e)
-            
-            with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
-                f.write("\n\n\nSERVER_CONNECTION_ERROR___________________________________\n")
-                f.write(repr(e))
-                            
-            print("Error while connecting with server")
-            continue
-            
+                    message += killMail["url"]
+                    
+                    channelIDs = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
+                    if len(channelIDs) == 0:
+                        continue
+                    for chID in channelIDs:
+                        channel = bot.get_channel(chID)
+                        await channel.send(message)
+                        
+                except Exception as e:
+                    # TODO DEBUG
+                    print(e)
+                    
+                    with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
+                        f.write("\n\n\nKILLMAIL_SENDING_ERROR___________________________________\n")
+                        f.write(repr(e))
+                        
+                    print("Error while sending killmail, restarting socket")
+                    break
                     
                     
                 
