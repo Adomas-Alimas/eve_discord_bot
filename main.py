@@ -132,7 +132,7 @@ async def printChannels(context):
     await channel.send(responseMessage)
     
     
-@bot.command(name="Restart", help="\"Restart hosting server\"")
+@bot.command(name="restart", help="\"Restart hosting server\"")
 async def restartServer(context):
     # restarts server
     if context.author.name == "GibTiddy":
@@ -166,6 +166,11 @@ async def reportKillmails():
     # Listener loop for getting newest killmails and
     # outputting them into subscribed channels
     
+    # killmail url cache for dupe prevention
+    sentUrlCache = []
+    # last kill checking
+    lastKillIsLoss = False
+    
     # connect up with zKillFeed websocket
     while True:
         # outer loop restarted when connection fails
@@ -186,19 +191,16 @@ async def reportKillmails():
                         killMail = await asyncio.wait_for(websocket.recv(), timeout=3600)
                     
                     except (asyncio.TimeoutError):
-                        # print("Connection timeout, restarting socket")
                         break
                         
-                    except (ConnectionClosedError) as e:
-                        # TODO DEBUG
-                        print(e)
+                    except (ConnectionClosedError):
                         
                         loggingTimeEnd = time.time()
                     
-                        with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
-                            f.write("\n\n\nCONNECTION_ERROR_1006________________________________")
-                            f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
-                            f.write(repr(e))
+                        # with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
+                        #    f.write("\n\n\nCONNECTION_ERROR_1006________________________________")
+                        #    f.write(f"\nTIME FROM OPEN CONN RECEIVING TO EXCEPTION [{loggingTimeEnd-loggingTimeStart}]\n")
+                        #    f.write(repr(e))
                             
                         print("Connection lost, restarting socket [err 1006, good exception]")
                         break
@@ -218,15 +220,33 @@ async def reportKillmails():
                         break
             
                     try:
-                        print("Killmail received, sending discord message")
-                        
                         killMail = json.loads(killMail)
 
+                        # check if killmail is duplicate, if not add it to cache
+                        if killMail['url'] in sentUrlCache:
+                            print("Duplicate killmail, skipping discord message")
+                            continue
+                        else:
+                            sentUrlCache.append(killMail['url'])
+                            
+                            # trim down cache if it gets too big
+                            if len(sentUrlCache) > 10:
+                                sentUrlCache.pop(0)
+                                
+                        print("Killmail received, sending discord message")
+                        
+                        # assemble message
                         message = ""
-                        if int(killMail["corporation_id"]) == int(CORPID):
+                        
+                        # if previous killmails were loss dont repeat loss line, same with wins
+                        if (int(killMail["corporation_id"]) == int(CORPID)) and lastKillIsLoss is False:
+                            lastKillIsLoss = True
+                            
                             message += random.choice(kilmailText["loss"])
                             message += "\n"
-                        else:
+                        elif not (int(killMail["corporation_id"]) == int(CORPID)) and lastKillIsLoss is True:
+                            lastKillIsLoss = False
+                            
                             message += random.choice(kilmailText["win"])
                             message += "\n"
                         
@@ -261,11 +281,10 @@ async def reportKillmails():
             print("Error while connecting with server")
             continue
                     
-                    
-                
+                                    
 if __name__ == "__main__":
     # TODO DEBUG
-    # open(os.path.join(CURRENT_PATH, "debug.txt"), "w").close()
+    open(os.path.join(CURRENT_PATH, "debug.txt"), "w").close()
     with open(os.path.join(CURRENT_PATH, "debug.txt"), "a+") as f:
         f.write("\n\n\n\n\n___________________________________")
         f.write("\n###########_NEW_SESSION_###########")
