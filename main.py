@@ -1,19 +1,15 @@
-import os
-from discord.ext import commands
-import discord
 import asyncio
-
-import logging
-import configparser
-
-import websockets
-from websockets import ConnectionClosedError
-
 import json
+import logging
+import os
 import random
 import time
 
+import discord
+import websockets
+from discord.ext import commands
 from dotenv import load_dotenv
+from websockets import ConnectionClosedError
 
 # TODO remove
 # scp "C:\Users\Ripe Boi\Desktop\Programavimas\Python_learning\eve_discord_bot\main.py" admin@192.168.1.199:/C:/Users/admin/Desktop/discordBot
@@ -22,43 +18,19 @@ from dotenv import load_dotenv
 CURRENT_PATH = os.path.dirname(os.path.realpath(__file__))
 
 
-def readConfig(section, key):
-    # config reading function
-    filePath = os.path.join(CURRENT_PATH, "config.ini")
-
-    config = configparser.ConfigParser()
-    config.optionxform = str    # makes all the keys in config file not turn to lowercase
-    config.read(filePath, encoding='utf-8')   # encoding for lithuanian letters
-    
-    return config.get(section, key)
-
-
-def writeConfig(section, key, value):
-    # config writing function
-    filePath = os.path.join(CURRENT_PATH, "config.ini")
-    
-    config = configparser.ConfigParser()
-    config.optionxform = str    # makes all the keys in config file not turn to lowercase
-    config.read(filePath, encoding='utf-8')   # encoding for lithuanian letters
-    config.set(section, key, value)
-    
-    with open(filePath, 'w', encoding='utf8') as file:   # save file
-        config.write(file)
-
-
 # loads .env file
 load_dotenv()
 
+# const settings
 TOKEN = os.getenv("DISCORD_TOKEN")
-CORPID = readConfig('KILLMAILS', 'CorpID')
+CORPID = 98655191
+KILLMAILCHANNELID = 850158285008404531
 
 bot = commands.Bot(command_prefix="-")
 
 DEBUG = False
 
-    
 if DEBUG:
-    
     # logging
     logger = logging.getLogger('discord')
     logger.setLevel(logging.DEBUG)
@@ -89,63 +61,22 @@ kilmailText = {"win": ["Something blew up, and it wasn't us \\o/: ",
                         "Clearly an unfair fight: ",
                         "Not cool: ",
                         "**We will remember this: **"]}
-
-
-@bot.command(name="subKillfeed", help="Subscribes current channel to corp killfeed")
-async def subscribeChannel(context):
-    # Gets current channel id and adds it into config.ini
-    if not context.author.name == "GibTiddy":
-        return
-    
-    channel = context.message.channel
-    channelID = channel.id
-    
-    subbedChannels = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
-    
-    if channelID not in subbedChannels:
-        subbedChannels.append(channelID)
-        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(subbedChannels))
-        await channel.send(f"```Successfully subscribed channel [{channel.name}] to corp (ID: {CORPID}) killboard.```")
-        
-    else:
-        subbedChannels.remove(channelID)
-        writeConfig("KILLMAILS", "SubscribedChannels", json.dumps(subbedChannels))
-        await channel.send(f"```Successfully unsubscribed channel [{channel.name}] from corp (ID: {CORPID}) killboard.```")
-        
-        
-@bot.command(name="subbedChannels", help="Shows all channels that are subscribed")
-async def printChannels(context):
-    # Prints out all channels in config.ini
-    if not context.author.name == "GibTiddy":
-        return
-    
-    channel = context.message.channel
-    
-    subbedChannels = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
-    
-    responseMessage = "```Following channels are subscribed to a killfeed: \n"
-    for i, chID in enumerate(subbedChannels):
-        ch = bot.get_channel(chID)
-        responseMessage += f"({i+1}) channel_server={ch.guild.name} | channel_name={ch.name} |  channel_id={chID}\n"
-
-    responseMessage += "```"
-    await channel.send(responseMessage)
     
     
 @bot.command(name="restart", help="\"Restart hosting server\"")
-async def restartServer(context):
+async def restartServer(ctx):
     # restarts server
-    if context.author.name == "GibTiddy":
-        await context.message.channel.send("Restarting server")
+    if ctx.author.name == "GibTiddy":
+        await ctx.message.channel.send("Restarting server")
         await bot.close()
         os.system("shutdown /r")
         
 
 @bot.command(name="66", help="\"Execute order 66\"")
-async def killBot(context):
+async def killBot(ctx):
     # Kills bot
-    if context.author.name == "GibTiddy":
-        await context.message.channel.send("Shutting off")
+    if ctx.author.name == "GibTiddy":
+        await ctx.message.channel.send("Shutting off")
         await bot.close()
 
 
@@ -170,6 +101,8 @@ async def reportKillmails():
     sentUrlCache = []
     # last kill checking
     lastKillIsLoss = False
+    # last killmail message ID
+    lastMessageId = 0
     
     # connect up with zKillFeed websocket
     while True:
@@ -235,16 +168,21 @@ async def reportKillmails():
                                 
                         print("Killmail received, sending discord message")
                         
+                        # get latest message in channel id
+                        channel = bot.get_channel(KILLMAILCHANNELID)
+                        newestMessageId = channel.last_message_id
+                        
                         # assemble message
                         message = ""
                         
                         # if previous killmails were loss dont repeat loss line, same with wins
-                        if (int(killMail["corporation_id"]) == int(CORPID)) and lastKillIsLoss is False:
+                        # if someone excluding bot wrote a message into channel repeat loss or win line for better clarity
+                        if (int(killMail["corporation_id"]) == int(CORPID)) and (lastKillIsLoss is False or not newestMessageId == lastMessageId):
                             lastKillIsLoss = True
                             
                             message += random.choice(kilmailText["loss"])
                             message += "\n"
-                        elif not (int(killMail["corporation_id"]) == int(CORPID)) and lastKillIsLoss is True:
+                        elif not (int(killMail["corporation_id"]) == int(CORPID)) and (lastKillIsLoss is True or not newestMessageId == lastMessageId):
                             lastKillIsLoss = False
                             
                             message += random.choice(kilmailText["win"])
@@ -252,12 +190,10 @@ async def reportKillmails():
                         
                         message += killMail["url"]
                         
-                        channelIDs = json.loads(readConfig("KILLMAILS", "SubscribedChannels"))
-                        if len(channelIDs) == 0:
-                            continue
-                        for chID in channelIDs:
-                            channel = bot.get_channel(chID)
-                            await channel.send(message)
+                        # sending message to debuging channel
+                        await bot.get_channel(851536539187019867).send(message)
+                        lastMessage = await channel.send(message)
+                        lastMessageId = lastMessage.id
                             
                     except Exception as e:
                         # TODO DEBUG
